@@ -115,13 +115,13 @@ class Particion:
         """Indica si la partición es un hueco disponible para asignar a usuarios."""
         return self.proceso is None and not self.es_so
 
-    @property
-    def fragmentacion_externa(self) -> int:
+    def calcular_fragmentacion_externa(self, existe_frag_externa: bool = False) -> int:
         """
         En particiones variables no hay fragmentación interna.
-        El tamaño de cualquier hueco libre constituye fragmentación externa potencial.
+        Un hueco libre solo constituye fragmentación externa cuando existe al menos
+        un proceso esperando memoria que cabría en el total libre pero no en ningún hueco individual.
         """
-        return self.tamano if self.libre else 0
+        return self.tamano if (self.libre and existe_frag_externa) else 0
 
     @property
     def limite_superior(self) -> int:
@@ -170,6 +170,18 @@ class GestorMemoria:
         """Lista de todas las particiones libres."""
         return [p for p in self.particiones if p.libre]
 
+    def hay_fragmentacion_externa(self, procesos_esperando: Optional[List[Proceso]] = None) -> bool:
+        """
+        Evalúa si existe Fragmentación Externa en el instante actual (Variante A):
+        Existe únicamente cuando hay al menos un proceso esperando ingresar a RAM
+        cuyo tamaño es <= memoria_libre_total, pero > mayor_hueco_disponible.
+        """
+        if not procesos_esperando:
+            return False
+        libre_total = self.memoria_libre_total()
+        mayor_hueco = self.mayor_hueco_disponible()
+        return any(mayor_hueco < p.tamano <= libre_total for p in procesos_esperando)
+
     def asignar_best_fit(self, proceso: Proceso) -> Tuple[bool, str]:
         """
         Busca el hueco contiguo libre de tamaño >= proceso.tamano que deje el menor remanente.
@@ -188,8 +200,7 @@ class GestorMemoria:
                 detalle = (
                     f"EVIDENCIA DE FRAGMENTACIÓN EXTERNA: El proceso requiere {proceso.tamano} KB. "
                     f"Hay {libre_total} KB libres en total, pero dispersos en huecos discontinuos "
-                    f"(el mayor hueco disponible es de {mayor_hueco} KB). "
-                    f"Al estar prohibida la compactación, el proceso NO puede ingresar a RAM."
+                    f"(el mayor hueco disponible es de {mayor_hueco} KB)."
                 )
             else:
                 detalle = (
@@ -298,14 +309,15 @@ class GestorMemoria:
 
         return True, detalle
 
-    def generar_tabla_ascii(self) -> str:
+    def generar_tabla_ascii(self, procesos_esperando: Optional[List[Proceso]] = None) -> str:
         """
         Genera la tabla formateada en ASCII con las columnas requeridas:
-        Partición | Comienzo | Tamaño | Proceso Asignado | Frag. Externa (Hueco)
+        Partición | Comienzo | Tamaño | Proceso Asignado | Frag. Externa
         """
+        existe_frag = self.hay_fragmentacion_externa(procesos_esperando)
         lineas = []
         sep = "+------------+-----------+--------+------------------+-----------------------+"
-        cab = "| Partición  | Comienzo  | Tamaño | Proceso Asignado | Frag. Externa (Hueco) |"
+        cab = "| Partición  | Comienzo  | Tamaño | Proceso Asignado | Frag. Externa         |"
         lineas.append(sep)
         lineas.append(cab)
         lineas.append(sep)
@@ -318,7 +330,8 @@ class GestorMemoria:
             elif p.libre:
                 id_col = f"{p.id_particion} (Hueco)"
                 proc_col = "[LIBRE]"
-                frag_col = f"{p.tamano} KB"
+                frag_kb = p.calcular_fragmentacion_externa(existe_frag)
+                frag_col = f"{frag_kb} KB"
             else:
                 id_col = f"{p.id_particion}"
                 proc_col = f"{p.proceso.pid}"
@@ -499,7 +512,7 @@ class Simulador:
                 self.planificador.cola_suspendidos.append(p_adm)
                 eventos.append(
                     f"ADMISIÓN -> LISTO Y SUSPENDIDO: Proceso {p_adm.pid} admitido en cupo ({self.total_activos}/"
-                    f"{self.LIMITE_MULTIPROGRAMACION}), pero enviado a SWAP. {msg_asig}"
+                    f"{self.LIMITE_MULTIPROGRAMACION}). {msg_asig}"
                 )
 
         if self.cola_nuevos_espera:
@@ -573,21 +586,18 @@ class Simulador:
         sep_ancho = 80
         linea_doble = "=" * sep_ancho
 
-        evento_resumen = eventos[0] if eventos else "Ciclo de ejecución normal"
-        if len(eventos) > 1:
-            evento_resumen = f"{eventos[0]} (+{len(eventos) - 1} evento(s))"
+        lista_eventos = eventos if eventos else ["Ciclo de ejecución normal"]
 
         # 1. Cabecera principal
         print("\n" + linea_doble)
-        print(f" RELOJ: t = {t} unidades de tiempo | EVENTO: {evento_resumen}")
+        print(f" RELOJ: t = {t} unidades de tiempo")
         print(linea_doble)
 
-        # Si hubo múltiples eventos, listarlos explícitamente para máxima claridad educativa
-        if len(eventos) > 1:
-            print(" DETALLE DE ACCIONES EN ESTE INSTANTE:")
-            for idx_ev, ev in enumerate(eventos, start=1):
-                print(f"   [{idx_ev}] {ev}")
-            print("-" * sep_ancho)
+        # Listar siempre los eventos ocurridos en este instante debajo de la cabecera
+        print(" DETALLE DE ACCIONES EN ESTE INSTANTE:")
+        for idx_ev, ev in enumerate(lista_eventos, start=1):
+            print(f"   [{idx_ev}] {ev}")
+        print("-" * sep_ancho)
 
         # 2. Estado de CPU
         if self.planificador.proceso_ejecucion is not None:
@@ -598,41 +608,32 @@ class Simulador:
         print()
 
         # 3. Tabla de Particiones de Memoria
+        procesos_esperando_mem = self.planificador.cola_suspendidos
         print(" TABLA DE PARTICIONES DE MEMORIA (550 KB Total | 100 KB SO + 450 KB Usuario):")
-        print(self.gestor_memoria.generar_tabla_ascii())
+        print(self.gestor_memoria.generar_tabla_ascii(procesos_esperando_mem))
 
-        # Diagnóstico de Fragmentación Externa
+        # Diagnóstico de Fragmentación Externa (Variante A)
         libre_total = self.gestor_memoria.memoria_libre_total()
         huecos = self.gestor_memoria.huecos_libres()
         cant_huecos = len(huecos)
-        condicion_frag = "Discontinua" if cant_huecos > 1 else "Contigua"
+        existe_frag = self.gestor_memoria.hay_fragmentacion_externa(procesos_esperando_mem)
+        frag_total = libre_total if existe_frag else 0
+
+        if existe_frag:
+            mayor_hueco = self.gestor_memoria.mayor_hueco_disponible()
+            afectados = [
+                f"{p.pid} ({p.tamano} KB)"
+                for p in procesos_esperando_mem
+                if mayor_hueco < p.tamano <= libre_total
+            ]
+            detalle_frag = f"{frag_total} KB (Discontinua en {cant_huecos} huecos; afecta a: {', '.join(afectados)})"
+        else:
+            detalle_frag = "0 KB (Ningún proceso en espera bloqueado por memoria fragmentada)"
 
         print(
-            f" Memoria Libre Total: {libre_total} KB | "
-            f"Fragmentación Externa Total: {libre_total} KB ({condicion_frag} en {cant_huecos} hueco(s))"
+            f" Memoria Libre Total: {libre_total} KB ({cant_huecos} hueco(s)) | "
+            f"Fragmentación Externa Total: {detalle_frag}"
         )
-
-        # Advertencia educativa sobre fragmentación externa
-        mayor_hueco = self.gestor_memoria.mayor_hueco_disponible()
-        if cant_huecos > 1 and mayor_hueco < libre_total:
-            tam_ejemplo = mayor_hueco + 10
-            if tam_ejemplo <= libre_total:
-                print(
-                    f" [AVISO DIDÁCTICO]: Si llega un proceso de {tam_ejemplo} KB, irá a SUSPENDIDO "
-                    f"porque el mayor hueco es de {mayor_hueco} KB (alcanza el total pero no hay compactación)."
-                )
-
-        # Si hay procesos en suspendidos, explicar por qué no entran
-        if self.planificador.cola_suspendidos:
-            detalles_susp = []
-            for ps in self.planificador.cola_suspendidos:
-                if ps.tamano <= libre_total:
-                    detalles_susp.append(
-                        f"{ps.pid} ({ps.tamano} KB: hay {libre_total} KB libres pero dispersos en huecos < {ps.tamano} KB)"
-                    )
-                else:
-                    detalles_susp.append(f"{ps.pid} (requiere {ps.tamano} KB > {libre_total} KB libres)")
-            print(f" [ESTADO DE SUSPENDIDOS]: {'; '.join(detalles_susp)}.")
 
         print()
 
@@ -1171,7 +1172,7 @@ def info_estadisticas_finales():
     print("   - Significado: Tiempo neto acumulado que el proceso pasó aguardando turno")
     print("     sin hacer uso de la CPU. Refleja las demoras por competencia de CPU y memoria.")
     print()
-    print(" 2. ESTADÍSTICAS GLOBALES DEL SISTEMA")
+    print(" 2. ESTADÍSTICAS GLOBAL DEL SISTEMA")
     print(" -------------------------------------------------------------------------------")
     print(" * Total de Procesos Terminados (n):")
     print("   Cantidad de procesos que completaron exitosamente su ciclo de vida.")
