@@ -1,3 +1,8 @@
+"""
+Punto de entrada principal del Simulador de Asignación de Memoria y Planificación de Procesos.
+Cátedra: Sistemas Operativos - UTN FRRe (Facultad Regional Resistencia).
+"""
+
 import os
 import sys
 
@@ -19,9 +24,37 @@ if hasattr(sys.stdout, "reconfigure"):
         pass
 
 
-def menu_principal() -> None:
+def ajustar_ancho_consola() -> None:
+    """En Windows, ajusta el ancho mínimo a 105 columnas para que las tablas ASCII no se corten."""
+    if os.name == "nt" and sys.stdout.isatty():
+        try:
+            if os.get_terminal_size().columns < 105:
+                os.system("mode con: cols=105 lines=38")
+        except Exception:
+            pass
+
+
+def limpiar_consola() -> None:
+    """Limpia la pantalla de la terminal en Windows (cls) o Linux/macOS (clear)."""
+    os.system("cls" if os.name == "nt" else "clear")
+
+
+def _confirmar_inicio() -> bool:
+    """Solicita confirmación S/n validando que no se acepten teclas inválidas en silencio."""
     while True:
-        print("\n" + "=" * 75)
+        confirmar = input("\n¿Desea iniciar la simulación con estos procesos? (S/n) [S]: ").strip().lower()
+        if confirmar in ("", "s", "si", "y", "yes"):
+            return True
+        if confirmar in ("n", "no"):
+            return False
+        print(">> [ERROR] Opción inválida. Ingrese 'S' para iniciar o 'N' para cancelar.")
+
+
+def menu_principal() -> None:
+    ajustar_ancho_consola()
+    while True:
+        limpiar_consola()
+        print("=" * 75)
         print(" SIMULADOR DE ASIGNACIÓN DE MEMORIA (BEST-FIT) Y PLANIFICACIÓN (SRTF)")
         print(" Cátedra Sistemas Operativos - UTN FRRe")
         print("=" * 75)
@@ -45,21 +78,25 @@ def menu_principal() -> None:
             print("\n>> ¡Hasta luego!\n")
             sys.exit(0)
         else:
-            print(">> Opción no reconocida. Ingrese un número del 1 al 4.")
+            print("\n>> [ERROR] Opción no reconocida. Ingrese un número del 1 al 4.")
+            input("Presione [ENTER] para volver al menú principal... ")
             continue
 
         if procesos_a_ejecutar:
             mostrar_tabla_procesos_cargados(procesos_a_ejecutar)
-            confirmar = input("\n¿Desea iniciar la simulación con estos procesos? (S/n) [S]: ").strip().lower()
-            if confirmar in ("", "s", "si", "y", "yes"):
+            if _confirmar_inicio():
+                limpiar_consola()
                 ejecutar_simulacion_interactiva(Simulador(procesos_a_ejecutar))
+                input("\nPresione [ENTER] para volver al menú principal... ")
             else:
-                print(">> Simulación cancelada. Regresando al menú principal.")
+                print("\n>> Simulación cancelada.")
+                input("Presione [ENTER] para volver al menú principal... ")
 
 
 if __name__ == "__main__":
     try:
         if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
+            ajustar_ancho_consola()
             nombre_cli = os.path.basename(sys.argv[1].strip().strip("'\""))
             procesos_cli = cargar_desde_archivo(nombre_cli)
             if procesos_cli:

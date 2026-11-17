@@ -283,17 +283,31 @@ def mostrar_tabla_procesos_cargados(procesos: List[Proceso]) -> None:
 
 
 def seleccionar_modo_inicial() -> str:
-    """Permite elegir el modo de ejecución antes de iniciar la simulación."""
+    """Permite elegir el modo de ejecución validando que sea 1, 2, 3 o ENTER."""
     print("\nSeleccione el modo de ejecución:")
     print("  1. Paso a paso por tick ([ENTER] en cada unidad de tiempo)")
     print("  2. Paso a paso por evento (pausa en arribos, desalojos y terminaciones)")
-    print("  3. Automático (avance continuo con retardo visual; Ctrl+C para pausar)")
-    opcion = input("Modo [1/2/3, por defecto 1]: ").strip()
-    if opcion == "2":
-        return "eventos"
-    if opcion == "3":
-        return "auto"
-    return "ticks"
+    print("  3. Automático (avance continuo con retardo; Ctrl+C para pausar - vista rápida)")
+    while True:
+        opcion = input("Modo [1/2/3, por defecto 1]: ").strip()
+        if opcion in ("", "1"):
+            return "ticks"
+        if opcion == "2":
+            return "eventos"
+        if opcion == "3":
+            return "auto"
+        print(">> [ERROR] Opción inválida. Ingrese 1, 2 o 3 (o presione ENTER para modo 1).")
+
+
+def _pedir_comando_paso() -> str:
+    """Solicita la acción del usuario en cada pausa validando comandos válidos."""
+    while True:
+        opcion = input(
+            ">> [ENTER] tick | 'e' por eventos | 'a' automático | 's' salir: "
+        ).strip().lower()
+        if opcion in ("", "e", "evento", "eventos", "a", "auto", "s", "salir", "exit"):
+            return opcion
+        print(">> [ERROR] Comando no reconocido. Presione [ENTER], 'e', 'a' o 's'.")
 
 
 def ejecutar_simulacion_interactiva(simulador: Simulador) -> None:
@@ -322,9 +336,7 @@ def ejecutar_simulacion_interactiva(simulador: Simulador) -> None:
                 modo = "ticks"
         elif debe_mostrar:
             try:
-                opcion = input(
-                    ">> [ENTER] tick | 'e' por eventos | 'a' automático | 's' salir: "
-                ).strip().lower()
+                opcion = _pedir_comando_paso()
                 if opcion in ("a", "auto"):
                     modo = "auto"
                     print(">> Modo automático activado (Ctrl+C para pausar).")
