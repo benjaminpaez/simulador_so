@@ -85,7 +85,6 @@ def menu_principal() -> None:
         if procesos_a_ejecutar:
             mostrar_tabla_procesos_cargados(procesos_a_ejecutar)
             if _confirmar_inicio():
-                limpiar_consola()
                 ejecutar_simulacion_interactiva(Simulador(procesos_a_ejecutar))
                 input("\nPresione [ENTER] para volver al menú principal... ")
             else:
