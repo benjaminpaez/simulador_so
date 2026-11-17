@@ -7,14 +7,72 @@ exportación a .txt y 3 modos de ejecución:
 """
 
 import os
+import sys
 import time
 from datetime import datetime
 from typing import List, Optional
+
+if os.name == "nt":
+    import msvcrt
 
 from cargador import obtener_directorio_ejecutable
 from memoria import GestorMemoria
 from modelos import Proceso
 from simulador import Simulador
+
+
+def leer_opcion_tecla(prompt: str) -> str:
+    """
+    Lee una opción de una sola tecla y ejecuta la acción inmediatamente sin esperar [ENTER].
+    Si la entrada no es una terminal interactiva (ej. tests), usa input() estándar.
+    """
+    if not sys.stdin.isatty():
+        return input(prompt).strip()
+
+    print(prompt, end="", flush=True)
+
+    if os.name == "nt":
+        while True:
+            ch = msvcrt.getwch()
+            if ch in ("\x00", "\xe0"):
+                msvcrt.getwch()
+                continue
+            if ch == "\x03":
+                print()
+                raise KeyboardInterrupt
+            if ch in ("\x1a", "\x04"):
+                print()
+                raise EOFError
+            if ch in ("\r", "\n"):
+                print()
+                return ""
+            if ch in ("\x08", "\x7f"):
+                continue
+            print(ch)
+            return ch.strip()
+    else:
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+        if ch == "\x03":
+            print()
+            raise KeyboardInterrupt
+        if ch in ("\x04", "\x1a"):
+            print()
+            raise EOFError
+        if ch in ("\r", "\n"):
+            print()
+            return ""
+        print(ch)
+        return ch.strip()
 
 
 def generar_tabla_memoria_ascii(
@@ -283,31 +341,44 @@ def mostrar_tabla_procesos_cargados(procesos: List[Proceso]) -> None:
 
 
 def seleccionar_modo_inicial() -> str:
-    """Permite elegir el modo de ejecución validando que sea 1, 2, 3 o ENTER."""
+    """Permite elegir el modo de ejecución validando que sea 1, 2, 3 o ENTER (sin esperar Enter adicional)."""
     print("\nSeleccione el modo de ejecución:")
     print("  1. Paso a paso por tick ([ENTER] en cada unidad de tiempo)")
     print("  2. Paso a paso por evento (pausa en arribos, desalojos y terminaciones)")
     print("  3. Automático (avance continuo con retardo; Ctrl+C para pausar - vista rápida)")
     while True:
-        opcion = input("Modo [1/2/3, por defecto 1]: ").strip()
+        opcion = leer_opcion_tecla("Modo [1/2/3, por defecto 1]: ")
         if opcion in ("", "1"):
             return "ticks"
         if opcion == "2":
             return "eventos"
         if opcion == "3":
             return "auto"
-        print(">> [ERROR] Opción inválida. Ingrese 1, 2 o 3 (o presione ENTER para modo 1).")
+        print(">> [ERROR] Opción inválida. Presione 1, 2 o 3 (o [ENTER] para modo 1).")
 
 
 def _pedir_comando_paso() -> str:
-    """Solicita la acción del usuario en cada pausa validando comandos válidos."""
+    """Solicita la acción del usuario en cada pausa ejecutándola al presionar la tecla."""
     while True:
-        opcion = input(
+        opcion = leer_opcion_tecla(
             ">> [ENTER] tick | 'e' por eventos | 'a' automático | 's' salir: "
-        ).strip().lower()
+        ).lower()
         if opcion in ("", "e", "evento", "eventos", "a", "auto", "s", "salir", "exit"):
             return opcion
         print(">> [ERROR] Comando no reconocido. Presione [ENTER], 'e', 'a' o 's'.")
+
+
+def _confirmar_exportacion() -> bool:
+    """Solicita confirmación s/N para exportar la traza actuando al presionar la tecla."""
+    while True:
+        exportar = leer_opcion_tecla(
+            "¿Desea exportar la traza y el reporte final a un archivo .txt? (s/N) [N]: "
+        ).lower()
+        if exportar in ("s", "si", "y", "yes"):
+            return True
+        if exportar in ("", "n", "no"):
+            return False
+        print(">> [ERROR] Opción inválida. Presione 'S' para exportar o 'N' / [ENTER] para omitir.")
 
 
 def ejecutar_simulacion_interactiva(simulador: Simulador) -> None:
@@ -359,8 +430,7 @@ def ejecutar_simulacion_interactiva(simulador: Simulador) -> None:
         )
         traza_texto.append(mostrar_reporte_final(simulador))
         try:
-            exportar = input("¿Desea exportar la traza y el reporte final a un archivo .txt? (s/N) [N]: ").strip().lower()
-            if exportar in ("s", "si", "y", "yes"):
+            if _confirmar_exportacion():
                 exportar_traza_txt(traza_texto)
         except (KeyboardInterrupt, EOFError):
             pass

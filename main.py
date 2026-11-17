@@ -14,6 +14,7 @@ from cargador import (
 from simulador import Simulador
 from vista_consola import (
     ejecutar_simulacion_interactiva,
+    leer_opcion_tecla,
     mostrar_tabla_procesos_cargados,
 )
 
@@ -40,14 +41,16 @@ def limpiar_consola() -> None:
 
 
 def _confirmar_inicio() -> bool:
-    """Solicita confirmación S/n validando que no se acepten teclas inválidas en silencio."""
+    """Solicita confirmación S/n actuando de inmediato al presionar la tecla."""
     while True:
-        confirmar = input("\n¿Desea iniciar la simulación con estos procesos? (S/n) [S]: ").strip().lower()
+        confirmar = leer_opcion_tecla(
+            "\n¿Desea iniciar la simulación con estos procesos? (S/n) [S]: "
+        ).lower()
         if confirmar in ("", "s", "si", "y", "yes"):
             return True
         if confirmar in ("n", "no"):
             return False
-        print(">> [ERROR] Opción inválida. Ingrese 'S' para iniciar o 'N' para cancelar.")
+        print(">> [ERROR] Opción inválida. Presione 'S' / [ENTER] para iniciar o 'N' para cancelar.")
 
 
 def menu_principal() -> None:
@@ -64,7 +67,7 @@ def menu_principal() -> None:
         print(" 4. Salir")
         print("-" * 75)
 
-        opcion = input("Seleccione una opción (1-4): ").strip()
+        opcion = leer_opcion_tecla("Seleccione una opción (1-4): ").lower()
         procesos_a_ejecutar = None
 
         if opcion == "1":

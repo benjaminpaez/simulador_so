@@ -204,7 +204,7 @@ def cargar_desde_archivo(nombre_archivo: Optional[str] = None) -> Optional[List[
             else (archivos_disponibles[0] if archivos_disponibles else "")
         )
         prompt = (
-            f"Ingrese nombre o número del archivo [Por defecto: {sugerencia}]: "
+            f"Ingrese nombre o número del archivo y de ENTER[Por defecto: {sugerencia}]: "
             if sugerencia
             else "Ingrese nombre o número del archivo: "
         )
